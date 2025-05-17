@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ECG Monitor</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.9.4/Chart.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f8f9fa;
+        }
+        .container {
+            max-width: 100%;
+            margin: 0 auto;
+        }
+        .chart-container {
+            position: relative;
+            height: 300px;
+            width: 100%;
+            margin-top: 20px;
+            background-color: white;
+            padding: 10px;
+            border-radius: 5px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .heart-rate-container {
+            display: flex;
+            align-items: center;
+            margin-top: 15px;
+            padding: 15px;
+            background-color: white;
+            border-radius: 5px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .heart-icon {
+            color: red;
+            font-size: 24px;
+            margin-right: 10px;
+            animation: pulse 1s infinite;
+        }
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.2); }
+            100% { transform: scale(1); }
+        }
+        .heart-rate-value {
+            font-size: 24px;
+            font-weight: bold;
+        }
+        .bpm {
+            font-size: 14px;
+            color: #666;
+            margin-left: 5px;
+        }
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 15px;
+            padding: 15px;
+            background-color: white;
+            border-radius: 5px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        select, button {
+            padding: 8px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        button.disconnect {
+            background-color: #f44336;
+        }
+        button.disconnect:hover {
+            background-color: #d32f2f;
+        }
+        .status {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .data-display {
+            margin-top: 20px;
+            background-color: white;
+            padding: 10px;
+            border-radius: 5px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            height: 300px;
+            overflow-y: auto;
+            font-family: monospace;
+            line-height: 1.5;
+            font-size: 14px;
+        }
+        .data-display-title {
+            font-weight: bold;
+            margin-bottom: 5px;
+            color: #333;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 5px;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        h1 {
+            margin: 0;
+            color: #333;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>ECG Monitor</h1>
+        </div>
+        
+        <div class="controls">
+            <select id="portSelect">
+                <option value="">Select Port</option>
+                {% for port in ports %}
+                <option value="{{ port }}">{{ port }}</option>
+                {% endfor %}
+            </select>
+            
+            <select id="baudSelect">
+                <option value="">Select Baud Rate</option>
+                {% for rate in baud_rates %}
+                <option value="{{ rate }}" {% if rate == 9600 %}selected{% endif %}>{{ rate }}</option>
+                {% endfor %}
+            </select>
+            
+            <button id="connectBtn">Connect</button>
+            <button id="disconnectBtn" class="disconnect" disabled>Disconnect</button>
+            <button id="refreshPortsBtn">Refresh Ports</button>
+        </div>
+        
+        <div id="statusMessage" class="status" style="display: none;"></div>
+        
+        <div class="chart-container">
+            <canvas id="ecgChart"></canvas>
+        </div>
+        
+        <div class="heart-rate-container">
+            <div class="heart-icon">❤</div>
+            <div class="heart-rate-value" id="heartRateValue">--</div>
+            <div class="bpm">BPM</div>
+        </div>
+        
+        <div class="data-display" id="rawDataContainer">
+            <div class="data-display-title">Raw Values (Newest at Top)</div>
+            <div id="rawData">Waiting for data...</div>
+        </div>
+    </div>
+
+    <script>
+        // Initialize chart
+        const ctx = document.getElementById('ecgChart').getContext('2d');
+        const ecgChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: Array(100).fill(''),
+                datasets: [{
+                    label: 'ECG Signal',
+                    data: Array(100).fill(null),
+                    borderColor: 'rgb(75, 192, 192)',
+                    tension: 0.1,
+                    fill: false
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: {
+                    duration: 0 // Disable animation for better performance
+                },
+                scales: {
+                    xAxes: [{
+                        display: true,
+                        scaleLabel: {
+                            display: true,
+                            labelString: 'Samples'
+                        }
+                    }],
+                    yAxes: [{
+                        display: true,
+                        scaleLabel: {
+                            display: true,
+                            labelString: 'Amplitude'
+                        },
+                        ticks: {
+                            // Dynamic scaling will be handled in JavaScript
+                            beginAtZero: false
+                        }
+                    }]
+                }
+            }
+        });
+
+        // DOM elements
+        const connectBtn = document.getElementById('connectBtn');
+        const disconnectBtn = document.getElementById('disconnectBtn');
+        const portSelect = document.getElementById('portSelect');
+        const baudSelect = document.getElementById('baudSelect');
+        const statusMessage = document.getElementById('statusMessage');
+        const refreshPortsBtn = document.getElementById('refreshPortsBtn');
+        const rawDataDisplay = document.getElementById('rawData');
+
+        // Variables
+        let isConnected = false;
+        let dataUpdateInterval = null;
+        let heartRateInterval = null;
+        let lastDataLength = 0;
+
+        // Connect to serial port
+        connectBtn.addEventListener('click', function() {
+            if (!portSelect.value || !baudSelect.value) {
+                showStatus('Please select both port and baud rate', false);
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('port', portSelect.value);
+            formData.append('baud_rate', baudSelect.value);
+
+            fetch('/connect', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    isConnected = true;
+                    connectBtn.disabled = true;
+                    disconnectBtn.disabled = false;
+                    portSelect.disabled = true;
+                    baudSelect.disabled = true;
+                    showStatus(data.message, true);
+                    
+                    // Start data polling
+                    startDataPolling();
+                } else {
+                    showStatus(data.message, false);
+                }
+            })
+            .catch(error => {
+                showStatus('Error: ' + error, false);
+            });
+        });
+
+        // Disconnect from serial port
+        disconnectBtn.addEventListener('click', function() {
+            fetch('/disconnect', {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                isConnected = false;
+                connectBtn.disabled = false;
+                disconnectBtn.disabled = true;
+                portSelect.disabled = false;
+                baudSelect.disabled = false;
+                showStatus(data.message, data.success);
+                
+                // Stop data polling
+                stopDataPolling();
+            })
+            .catch(error => {
+                showStatus('Error: ' + error, false);
+            });
+        });
+
+        // Refresh ports
+        refreshPortsBtn.addEventListener('click', function() {
+            fetch('/refresh_ports')
+            .then(response => response.json())
+            .then(ports => {
+                // Clear current options
+                portSelect.innerHTML = '<option value="">Select Port</option>';
+                
+                // Add new options
+                ports.forEach(port => {
+                    const option = document.createElement('option');
+                    option.value = port;
+                    option.textContent = port;
+                    portSelect.appendChild(option);
+                });
+                
+                showStatus('Ports refreshed!', true);
+            })
+            .catch(error => {
+                showStatus('Error refreshing ports: ' + error, false);
+            });
+        });
+
+        // Show status message
+        function showStatus(message, isSuccess) {
+            statusMessage.textContent = message;
+            statusMessage.className = 'status ' + (isSuccess ? 'success' : 'error');
+            statusMessage.style.display = 'block';
+            
+            // Hide after 3 seconds
+            setTimeout(() => {
+                statusMessage.style.display = 'none';
+            }, 3000);
+        }
+
+        // Start polling for data
+        function startDataPolling() {
+            if (dataUpdateInterval) {
+                clearInterval(dataUpdateInterval);
+            }
+            
+            if (heartRateInterval) {
+                clearInterval(heartRateInterval);
+            }
+            
+            dataUpdateInterval = setInterval(fetchData, 100); // Poll every 100ms
+            heartRateInterval = setInterval(fetchHeartRate, 1000); // Poll heart rate every second
+        }
+
+        // Stop polling for data
+        function stopDataPolling() {
+            if (dataUpdateInterval) {
+                clearInterval(dataUpdateInterval);
+                dataUpdateInterval = null;
+            }
+            
+            if (heartRateInterval) {
+                clearInterval(heartRateInterval);
+                heartRateInterval = null;
+            }
+        }
+
+        // Fetch heart rate
+        function fetchHeartRate() {
+            fetch('/get_heart_rate')
+            .then(response => response.json())
+            .then(data => {
+                const heartRateValue = document.getElementById('heartRateValue');
+                if (data.heart_rate > 0) {
+                    heartRateValue.textContent = data.heart_rate;
+                    
+                    // Adjust heart icon animation speed based on heart rate
+                    const heartIcon = document.querySelector('.heart-icon');
+                    if (data.heart_rate < 60) {
+                        heartIcon.style.animationDuration = '1.2s';
+                    } else if (data.heart_rate > 100) {
+                        heartIcon.style.animationDuration = '0.6s';
+                    } else {
+                        heartIcon.style.animationDuration = '1s';
+                    }
+                } else {
+                    heartRateValue.textContent = '--';
+                }
+            })
+            .catch(error => {
+                console.error('Error fetching heart rate:', error);
+            });
+        }
+
+        // Fetch the latest data
+        function fetchData() {
+            fetch('/get_data')
+            .then(response => response.json())
+            .then(data => {
+                updateChart(data);
+                updateRawData(data);
+                // Ensure we always update even if the data length doesn't change
+                // This could happen if the circular buffer on the server is full
+                lastDataLength = 0;
+            })
+            .catch(error => {
+                console.error('Error fetching data:', error);
+            });
+        }
+
+        // Update the chart with new data
+        function updateChart(data) {
+            if (data.length === 0) return;
+            
+            // Calculate min and max for dynamic scaling
+            const min = Math.min(...data) * 1.1; // Add 10% margin
+            const max = Math.max(...data) * 1.1; // Add 10% margin
+            
+            // Update chart data
+            ecgChart.data.datasets[0].data = data;
+            ecgChart.data.labels = Array(data.length).fill('');
+            
+            // Dynamic scaling
+            ecgChart.options.scales.yAxes[0].ticks.min = min;
+            ecgChart.options.scales.yAxes[0].ticks.max = max;
+            
+            ecgChart.update();
+        }
+
+        // Update raw data display
+        function updateRawData(data) {
+            if (data.length === 0) return;
+            
+            // Get the latest data values (last 20 values)
+            const latestValues = data.slice(-20);
+            
+            // Format values with newest at the top
+            const formattedValues = latestValues.map(value => value.toFixed(2)).reverse();
+            
+            // Update the display with newest values at the top
+            rawDataDisplay.innerHTML = formattedValues.join('<br>');
+            
+            // Always keep track of how much data we've processed
+            lastDataLength = data.length;
+        }
+    </script>
+</body>
+</html>
