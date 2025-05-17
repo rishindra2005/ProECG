@@ -99,8 +99,7 @@ The system consists of three main components:
 
 ### Web Interface
 
-<video src="videoplayback.mp4" controls="controls" style="max-width: 730px;">
-</video>
+<iframe src="https://drive.google.com/file/d/1dR2oAQiCQidE7JJWhE9w__8-MIOpJzFq/preview" width="640" height="480" allow="autoplay"></iframe>
 
 *Video: Web interface in action showing real-time ECG monitoring*
 
