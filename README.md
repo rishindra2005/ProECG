@@ -98,8 +98,11 @@ The system consists of three main components:
   - 'SPACE' - Toggle full screen mode
 
 ### Web Interface
+[![Watch the video](https://img.youtube.com/vi/VIDEO_ID/0.jpg)](https://ik.imagekit.io/uv6n96l6jw/videoplayback.mp4?updatedAt=1747510171174)
 
-<iframe src="https://drive.google.com/file/d/1dR2oAQiCQidE7JJWhE9w__8-MIOpJzFq/preview" width="640" height="480" allow="autoplay"></iframe>
+
+https://ik.imagekit.io/uv6n96l6jw/videoplayback.mp4
+
 
 *Video: Web interface in action showing real-time ECG monitoring*
 
